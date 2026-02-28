@@ -7,15 +7,25 @@ const App = () => {
   const [language, setLanguage] = React.useState('es');
   const [saved, setSaved] = React.useState(false);
 
+  const [service, setService] = React.useState('google');
+  const [apiKey, setApiKey] = React.useState('');
+  const [geminiKey, setGeminiKey] = React.useState('');
+
   React.useEffect(() => {
-    chrome.storage.local.get(['targetLanguage']).then((res: any) => {
+    chrome.storage.local.get(['targetLanguage', 'service', 'openaiApiKey', 'geminiApiKey']).then((res: any) => {
       if (res.targetLanguage) setLanguage(res.targetLanguage);
+      if (res.service) setService(res.service);
+      if (res.openaiApiKey) setApiKey(res.openaiApiKey);
+      if (res.geminiApiKey) setGeminiKey(res.geminiApiKey);
     });
   }, []);
 
   const handleSave = () => {
     chrome.storage.local.set({
-      targetLanguage: language
+      targetLanguage: language,
+      service: service,
+      openaiApiKey: apiKey,
+      geminiApiKey: geminiKey
     }).then(() => {
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -53,7 +63,55 @@ const App = () => {
           </div>
         </div>
 
+        <div className="input-group">
+          <label htmlFor="service">AI Service</label>
+          <div className="input-wrapper">
+            <Globe className="input-icon" size={16} />
+            <select 
+              id="service" 
+              value={service} 
+              onChange={(e) => setService(e.target.value)}
+            >
+              <option value="google">Google Translate (Free)</option>
+              <option value="openai">OpenAI (Requires API Key)</option>
+              <option value="gemini">Google Gemini (Requires API Key)</option>
+            </select>
+          </div>
+        </div>
 
+        {service === 'openai' && (
+          <div className="input-group">
+            <label htmlFor="apiKey">OpenAI API Key</label>
+            <div className="input-wrapper">
+              <Key className="input-icon" size={16} />
+              <input 
+                id="apiKey" 
+                type="password" 
+                placeholder="sk-..." 
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+              />
+            </div>
+            <p className="help-text">Your API key is stored securely in your browser's local storage.</p>
+          </div>
+        )}
+
+        {service === 'gemini' && (
+          <div className="input-group">
+            <label htmlFor="geminiKey">Gemini API Key</label>
+            <div className="input-wrapper">
+              <Key className="input-icon" size={16} />
+              <input 
+                id="geminiKey" 
+                type="password" 
+                placeholder="AIzaSy..." 
+                value={geminiKey}
+                onChange={(e) => setGeminiKey(e.target.value)}
+              />
+            </div>
+            <p className="help-text">Your API key is stored securely in your browser's local storage.</p>
+          </div>
+        )}
 
         <button className="save-button" onClick={handleSave}>
           {saved ? 'Saved!' : 'Save Settings'}

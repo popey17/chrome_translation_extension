@@ -72,6 +72,61 @@ const injectStyles = () => {
       display: block;
     }
     
+    .ai-explain-box {
+      position: absolute;
+      z-index: 2147483647;
+      background: rgba(255, 255, 255, 0.9);
+      backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      border-radius: 16px;
+      padding: 20px;
+      width: 320px;
+      max-height: 400px;
+      overflow-y: auto;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+      font-family: 'Inter', -apple-system, sans-serif;
+      color: #1f2937;
+      line-height: 1.6;
+      animation: fadeInScale 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+    
+    .ai-explain-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid rgba(0,0,0,0.05);
+    }
+    
+    .ai-explain-title {
+      font-weight: 600;
+      color: #4f46e5;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    
+    .ai-explain-close {
+      cursor: pointer;
+      color: #9ca3af;
+      transition: color 0.2s;
+    }
+    
+    .ai-explain-close:hover {
+      color: #1f2937;
+    }
+    
+    .ai-explain-content {
+      font-size: 14px;
+      white-space: pre-wrap;
+    }
+    
+    @keyframes fadeInScale {
+      from { opacity: 0; transform: scale(0.95); }
+      to { opacity: 1; transform: scale(1); }
+    }
+    
     @keyframes spin {
       to { transform: rotate(360deg); }
     }
@@ -88,27 +143,52 @@ const createButton = () => {
   
   // Icon and text
   translateBtn.innerHTML = `
-    <svg class="ai-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M5 8l6 6"/>
-      <path d="M4 14l6-6 2-3"/>
-      <path d="M2 5h12"/>
-      <path d="M7 2h1"/>
-      <path d="M22 22l-5-10-5 10"/>
-      <path d="M14 18h6"/>
-    </svg>
+    <div class="ai-btn-group" style="display: flex; gap: 4px;">
+      <div class="ai-action-btn ai-action-translate" style="display: flex; align-items: center; gap: 6px;">
+        <svg class="ai-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M5 8l6 6"/>
+          <path d="M4 14l6-6 2-3"/>
+          <path d="M2 5h12"/>
+          <path d="M7 2h1"/>
+          <path d="M22 22l-5-10-5 10"/>
+          <path d="M14 18h6"/>
+        </svg>
+        <span class="ai-text">Translate</span>
+      </div>
+      <div style="width: 1px; background: rgba(255,255,255,0.2); margin: 4px 2px;"></div>
+      <div class="ai-action-btn ai-action-explain" style="display: flex; align-items: center; gap: 6px;">
+        <svg class="ai-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="12" y1="16" x2="12" y2="12"/>
+          <line x1="12" y1="8" x2="12.01" y2="8"/>
+        </svg>
+        <span class="ai-text-explain">Explain</span>
+      </div>
+    </div>
     <div class="ai-spinner"></div>
-    <span class="ai-text">Translate</span>
   `;
   
   document.body.appendChild(translateBtn);
   
   translateBtn.addEventListener('mousedown', (e) => {
-    // Prevent mouse down to clear selection
     e.preventDefault();
     e.stopPropagation();
   });
   
-  translateBtn.addEventListener('click', handleTranslateClick);
+  const translateAction = translateBtn.querySelector('.ai-action-translate')!;
+  const explainAction = translateBtn.querySelector('.ai-action-explain')!;
+  
+  translateAction.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    handleActionClick('translate');
+  });
+  
+  explainAction.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    handleActionClick('explain');
+  });
   
   return translateBtn;
 };
@@ -129,7 +209,13 @@ const hideButton = () => {
 const showButton = (x: number, y: number) => {
   const btn = createButton();
   btn.classList.remove('ai-loading');
-  btn.querySelector('.ai-text')!.textContent = 'Translate';
+  const translateText = btn.querySelector('.ai-text')!;
+  const explainText = btn.querySelector('.ai-text-explain')!;
+  const btnGroup = btn.querySelector('.ai-btn-group')! as HTMLElement;
+  
+  translateText.textContent = 'Translate';
+  explainText.textContent = 'Explain';
+  btnGroup.style.display = 'flex';
   
   // Position the button slightly below and right of the cursor
   btn.style.left = `${x + 10}px`;
@@ -138,10 +224,14 @@ const showButton = (x: number, y: number) => {
 };
 
 document.addEventListener('mouseup', (e) => {
-  // If we clicked on the button itself, don't hide it
-  if (e.target && (e.target as HTMLElement).closest('.ai-translate-ext-btn')) {
+  // If we clicked on the button or explanation box, don't hide
+  if (e.target && (e.target as HTMLElement).closest('.ai-translate-ext-btn, .ai-explain-box')) {
     return;
   }
+  
+  // Close any open explanation boxes
+  const existingBox = document.querySelector('.ai-explain-box');
+  if (existingBox) existingBox.remove();
   
   // Small delay to ensure single clicks correctly clear the selection before checking
   setTimeout(() => {
@@ -177,13 +267,9 @@ document.addEventListener('mouseup', (e) => {
   }, 10);
 });
 
-async function handleTranslateClick(e: MouseEvent) {
-  e.preventDefault();
-  e.stopPropagation();
-  
+async function handleActionClick(action: 'translate' | 'explain') {
   let text = '';
 
-  // Retrieve text again (either from input/textarea or document selection)
   const activeElement = document.activeElement as HTMLElement | null;
   const isTextInput = activeElement && (
     activeElement.tagName === 'TEXTAREA' || 
@@ -205,27 +291,64 @@ async function handleTranslateClick(e: MouseEvent) {
   
   const btn = translateBtn!;
   btn.classList.add('ai-loading');
-  btn.querySelector('.ai-text')!.textContent = 'Translating...';
+  (btn.querySelector('.ai-btn-group')! as HTMLElement).style.display = 'none';
   
   try {
     const response = await chrome.runtime.sendMessage({
-      action: 'translate',
+      action: action,
       text: text
     });
     
     if (response && response.success) {
-      replaceSelectionWithText(response.translatedText);
-      hideButton();
+      if (action === 'translate') {
+        replaceSelectionWithText(response.resultText);
+        hideButton();
+      } else {
+        showExplanationBox(response.resultText);
+        hideButton();
+      }
     } else {
-      alert('Translation Error: ' + (response?.error || 'Unknown error'));
+      alert('Action Error: ' + (response?.error || 'Unknown error'));
       btn.classList.remove('ai-loading');
-      btn.querySelector('.ai-text')!.textContent = 'Translate';
+      (btn.querySelector('.ai-btn-group')! as HTMLElement).style.display = 'flex';
     }
   } catch (error: any) {
     alert('Extension Error: ' + error.message);
     btn.classList.remove('ai-loading');
-    btn.querySelector('.ai-text')!.textContent = 'Translate';
+    (btn.querySelector('.ai-btn-group')! as HTMLElement).style.display = 'flex';
   }
+}
+
+function showExplanationBox(content: string) {
+  // Remove existing box if any
+  const existingBox = document.querySelector('.ai-explain-box');
+  if (existingBox) existingBox.remove();
+
+  const box = document.createElement('div');
+  box.className = 'ai-explain-box';
+  
+  // Position it near where the button was
+  if (translateBtn) {
+    box.style.left = translateBtn.style.left;
+    box.style.top = translateBtn.style.top;
+  }
+
+  box.innerHTML = `
+    <div class="ai-explain-header">
+      <span class="ai-explain-title">Explanation</span>
+      <svg class="ai-explain-close" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="18" y1="6" x2="6" y2="18"></line>
+        <line x1="6" y1="6" x2="18" y2="18"></line>
+      </svg>
+    </div>
+    <div class="ai-explain-content">${content}</div>
+  `;
+
+  document.body.appendChild(box);
+
+  box.querySelector('.ai-explain-close')!.addEventListener('click', () => {
+    box.remove();
+  });
 }
 
 function replaceSelectionWithText(newText: string) {

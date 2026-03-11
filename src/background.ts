@@ -5,36 +5,49 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 type TranslationRequest = {
-  action: 'translate';
+  action: 'translate' | 'explain';
   text: string;
 };
 
 chrome.runtime.onMessage.addListener((request: TranslationRequest, _sender, sendResponse) => {
-  if (request.action === 'translate') {
-    handleTranslation(request.text)
-      .then(translatedText => sendResponse({ success: true, translatedText }))
+  if (request.action === 'translate' || request.action === 'explain') {
+    handleAction(request)
+      .then(resultText => sendResponse({ success: true, resultText }))
       .catch(error => sendResponse({ success: false, error: error.message }));
     
     return true; // Indicates asynchronous response
   }
 });
 
-async function handleTranslation(text: string): Promise<string> {
-  const result = await chrome.storage.local.get(['targetLanguage', 'service', 'openaiApiKey', 'geminiApiKey']);
-  const targetLanguage = (result.targetLanguage as string) || 'es';
+async function handleAction(request: TranslationRequest): Promise<string> {
+  const result = await chrome.storage.local.get(['targetLanguage', 'explainLanguage', 'service', 'openaiApiKey', 'geminiApiKey']);
   const service = (result.service as string) || 'google';
 
-  if (service === 'google') {
-    return translateWithGoogle(text, targetLanguage);
-  } else if (service === 'openai') {
-    if (!result.openaiApiKey) throw new Error('Please set your OpenAI API key in the popup.');
-    return translateWithOpenAI(text, targetLanguage, result.openaiApiKey as string);
-  } else if (service === 'gemini') {
-    if (!result.geminiApiKey) throw new Error('Please set your Gemini API key in the popup.');
-    return translateWithGemini(text, targetLanguage, result.geminiApiKey as string);
+  if (request.action === 'translate') {
+    const targetLanguage = (result.targetLanguage as string) || 'es';
+    if (service === 'google') return translateWithGoogle(request.text, targetLanguage);
+    if (service === 'openai') {
+      if (!result.openaiApiKey) throw new Error('Please set your OpenAI API key in the popup.');
+      return translateWithOpenAI(request.text, targetLanguage, result.openaiApiKey as string, 'translate');
+    }
+    if (service === 'gemini') {
+      if (!result.geminiApiKey) throw new Error('Please set your Gemini API key in the popup.');
+      return translateWithGemini(request.text, targetLanguage, result.geminiApiKey as string, 'translate');
+    }
+  } else if (request.action === 'explain') {
+    const explainLanguage = (result.explainLanguage as string) || 'en';
+    if (service === 'google') return translateWithGoogle(request.text, explainLanguage); // Google Translate just translates
+    if (service === 'openai') {
+      if (!result.openaiApiKey) throw new Error('Please set your OpenAI API key in the popup.');
+      return translateWithOpenAI(request.text, explainLanguage, result.openaiApiKey as string, 'explain');
+    }
+    if (service === 'gemini') {
+      if (!result.geminiApiKey) throw new Error('Please set your Gemini API key in the popup.');
+      return translateWithGemini(request.text, explainLanguage, result.geminiApiKey as string, 'explain');
+    }
   }
   
-  throw new Error('Unknown translation service selected');
+  throw new Error('Unknown service or action');
 }
 
 async function translateWithGoogle(text: string, lang: string): Promise<string> {
@@ -53,7 +66,15 @@ async function translateWithGoogle(text: string, lang: string): Promise<string> 
   throw new Error('Unexpected API response format');
 }
 
-async function translateWithOpenAI(text: string, lang: string, apiKey: string): Promise<string> {
+async function translateWithOpenAI(text: string, lang: string, apiKey: string, mode: 'translate' | 'explain'): Promise<string> {
+  const systemPrompt = mode === 'translate' 
+    ? `You are a professional translator. Translate the given text to language code: ${lang}. Maintain the original tone and formatting. Return ONLY the translation, without any quotes or explanations. Preserve line breaks.`
+    : `You are a helpful assistant. The following text is an instruction or task.
+1. First, translate the text into language code: ${lang}. Keep the original formatting and line breaks.
+2. Then, explain this instruction in simple terms.
+3. Finally, provide a concise summary of what needs to be done.
+Your entire response MUST be in language code: ${lang}. Use clear, readable language and separate the sections clearly.`;
+
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -63,10 +84,7 @@ async function translateWithOpenAI(text: string, lang: string, apiKey: string): 
     body: JSON.stringify({
       model: "gpt-3.5-turbo",
       messages: [
-        {
-          role: "system",
-          content: `You are a professional translator. Translate the given text to language code: ${lang}. Maintain the original tone and formatting. Return ONLY the translation, without any quotes or explanations. Preserve line breaks.`
-        },
+        { role: "system", content: systemPrompt },
         { role: "user", content: text }
       ],
       temperature: 0.3
@@ -82,15 +100,21 @@ async function translateWithOpenAI(text: string, lang: string, apiKey: string): 
   return data.choices[0].message.content.trim();
 }
 
-async function translateWithGemini(text: string, lang: string, apiKey: string): Promise<string> {
+async function translateWithGemini(text: string, lang: string, apiKey: string, mode: 'translate' | 'explain'): Promise<string> {
+  const prompt = mode === 'translate'
+    ? `You are a professional translator. Translate this text to language code: ${lang}. Return ONLY the translation, without any prefixes, Markdown formatting, or explanations. Preserve original line breaks exactly.\n\nText to translate:\n${text}`
+    : `You are a helpful assistant. The following text is an instruction or task.
+1. First, translate the text into language code: ${lang}. Keep the original formatting and line breaks.
+2. Then, explain this instruction in simple terms.
+3. Finally, provide a concise summary of what needs to be done.
+Your entire response MUST be in language code: ${lang}. Use clear, readable language and separate the sections clearly.\n\nInstruction to process:\n${text}`;
+
   const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       contents: [{
-        parts: [{
-          text: `You are a professional translator. Translate this text to language code: ${lang}. Return ONLY the translation, without any prefixes, Markdown formatting, or explanations. Preserve original line breaks exactly.\n\nText to translate:\n${text}`
-        }]
+        parts: [{ text: prompt }]
       }],
       generationConfig: {
         temperature: 0.3
